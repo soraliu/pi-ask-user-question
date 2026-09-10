@@ -1264,8 +1264,9 @@ describe("multi-question navigation", () => {
 });
 
 describe("terminal width overflow safety (pi TUI crash regression)", () => {
-	// pi 的 TUI 渲染引擎在任一渲染行可见宽度超过终端宽度时会写 crash 日志并抛错退出，
-	// 这里回归验证组件在各类长文本场景下都不产生超宽行
+	// pi's TUI renderer writes a crash log and fatally exits whenever a
+	// rendered line's visible width exceeds the terminal width; these tests
+	// guard against emitting over-wide lines in every long-text scenario
 	const stripMockTags = (line: string) => line.replace(/<[^>]+>/g, "");
 	const assertAllLinesWithin = (lines: string[], width: number) => {
 		for (const [index, line] of lines.entries()) {
@@ -1307,16 +1308,18 @@ describe("terminal width overflow safety (pi TUI crash regression)", () => {
 	});
 
 	it("wraps single overlong CJK words per visible width instead of truncating content", () => {
-		const description = "一二三四五六七八九十".repeat(8); // 80 可见宽，超过 40 宽的整“词”
+		const description = "一二三四五六七八九十".repeat(8); // a single 80-column "word" wider than the 40-column terminal
 		const { lines } = renderSnapshotWithWidth(
 			[{ question: "问题", header: "换行", options: [{ label: "选项", description }] }],
 			40,
 		);
 
 		assertAllLinesWithin(lines, 40);
-		// 所有描述行拼接后应还原完整内容（未被省略号截断），
-		// 逐字断行可能把任意字对拆到两行，所以验证整体而不是末尾两个字
-		// 描述行 = 五空格缩进 + dim 描述段；Other 行是两空格开头、帮助行顶格，均可排除
+		// Every description line must rejoin into the original content (no
+		// ellipsis truncation); per-character wrapping can split any character
+		// pair across lines, so verify the whole string rather than the tail
+		// Description lines are five-space indented <dim> segments; the Other
+		// row starts with two spaces and help lines are flush, so both are excluded
 		const descriptionLines = lines.filter((line) => /^ {5}<dim>/.test(line));
 		const rejoined = descriptionLines
 			.join("")
@@ -1336,7 +1339,7 @@ describe("terminal width overflow safety (pi TUI crash regression)", () => {
 
 		assertAllLinesWithin(lines, 60);
 		const output = lines.join("\n");
-		expect(output).toContain("接受的？"); // 问题文本换行后完整可见，不再只剩第一行
+		expect(output).toContain("接受的？"); // the full question text stays visible across wrapped lines instead of only the first
 	});
 
 	it("truncates overlong option labels instead of exceeding terminal width", () => {
@@ -1353,7 +1356,6 @@ describe("terminal width overflow safety (pi TUI crash regression)", () => {
 		const longQuestion =
 			"这是一个足够长的问题文本，用来验证 review 页的问题行会按终端宽度安全换行而不会撑破渲染？好的。";
 		const longAnswerLabel = "一个足够长的选项标签，多选确认后会在 review 页拼成很长的答案行，必须按宽度换行。";
-		let captured: QuestionResult[] | null = null;
 		const comp = createComp(
 			[
 				{
@@ -1373,22 +1375,17 @@ describe("terminal width overflow safety (pi TUI crash regression)", () => {
 					],
 				},
 			],
-			(r) => {
-				captured = r;
-			},
+			() => {},
 		);
 
-		comp.handleInput("\r"); // 问题一：选择第一项（长标签）
-		comp.handleInput("\r"); // 问题二：选择第一项，进入 review
+		comp.handleInput("\r"); // Question 1: pick the first option (long label)
+		comp.handleInput("\r"); // Question 2: pick the first option and land on the review screen
 		const lines = comp.render(72);
 		expect(lines.join("\n")).toContain("Review your answers");
 
 		assertAllLinesWithin(lines, 72);
 		const output = lines.join("\n");
 		expect(output).toContain("安全换行");
-		if (captured === null) {
-			// review 尚未提交，这里不需要结果，仅静态检查渲染
-		}
 	});
 
 	it("degrades styled header tabs to a truncated plain line in extremely narrow terminals", () => {

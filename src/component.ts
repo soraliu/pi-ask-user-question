@@ -85,8 +85,9 @@ function wrapPlainText(text: string, width: number): string[] {
 			continue;
 		}
 
-		// 一个“词”就超过整行宽度时（常见于没有空格分隔的 CJK 文本），
-		// 按可见宽度逐字符断行，避免用省略号截断丢内容
+		// A single word wider than the line (common for CJK text without spaces)
+		// is broken per visible width instead of being ellipsis-truncated,
+		// so no content is lost
 		let segment = "";
 		let segmentWidth = 0;
 		for (const ch of word) {
@@ -113,7 +114,8 @@ function wrapPlainText(text: string, width: number): string[] {
 }
 
 function renderQuestionText(theme: Theme, text: string, width: number): string[] {
-	// Text 会按宽度换行，保留全部换行结果，避免只取第一行而丢失问题内容
+	// Text wraps by width; keep every wrapped line so long questions
+	// are not silently cut off after the first line
 	return new Text(theme.bold(text), 0, 0).render(width).map((line) => line.trimEnd());
 }
 
@@ -413,8 +415,9 @@ export function createQuestionComponent(
 	}
 
 	function renderHeaderTabs(width: number): string {
-		// 先校验裸文本宽度：正常情况按主题样式渲染；仅在极端窄终端时降级为无色截断行，
-		// 避免多色彩拼接行超出终端宽度导致 pi 核心渲染崩溃
+		// Check the bare width first: styled tabs render normally and only degrade
+		// to a truncated unstyled line on extremely narrow terminals, keeping the
+		// multi-color row within the terminal width (pi's renderer crashes on over-wide lines)
 		const bareTabWidth = (header: string, box: string) => visibleWidth(`  ${box} ${header} `);
 		let bareWidth = params.reduce((sum, q) => sum + bareTabWidth(q.header, TAB_UNANSWERED) + 1, -1);
 		if (isMultiQuestion || isSingleQuestionMultiSelect) {
@@ -477,7 +480,8 @@ export function createQuestionComponent(
 			if (item.type === "option") {
 				const opt = q.options[i];
 				const descriptionPrefix = "     ";
-				// 选项行与自由输入行都在裸文本层按终端宽度截断，避免可见宽度超过终端宽度导致 pi 核心渲染崩溃
+				// Truncate option labels at the bare-text level so the styled row
+				// never exceeds the terminal width (pi's renderer crashes on over-wide lines)
 				const labelBudget = Math.max(
 					1,
 					width -
@@ -494,7 +498,8 @@ export function createQuestionComponent(
 				const rowRest = `${checkMarker}${label}`;
 				const row = `${numberPrefix}${chosen || focused ? theme.fg("accent", rowRest) : rowRest}`;
 				lines.push(`${prefix}${row}${selectedMarker}`);
-				// description 按终端宽度换行，避免其可见宽度超过终端宽度导致 pi 核心渲染崩溃
+				// Wrap the description to fit the terminal width; over-wide
+				// lines crash pi's renderer
 				const descWidth = Math.max(1, width - visibleWidth(descriptionPrefix));
 				for (const desc of wrapPlainText(opt.description, descWidth)) {
 					lines.push(`${descriptionPrefix}${theme.fg("dim", desc)}`);
@@ -653,7 +658,8 @@ export function createQuestionComponent(
 		for (let i = 0; i < totalQuestions; i++) {
 			const answer = collectedAnswers[i];
 			if (!answer) continue;
-			// 问题与答案都按终端宽度换行，避免长文本导致 pi 核心渲染崩溃
+			// Wrap both question and answer lines to the terminal width so long
+			// text cannot crash pi's renderer
 			for (const questionLine of wrapPlainText(params[i].question, Math.max(1, width - 2))) {
 				lines.push(`  ${questionLine}`);
 			}
@@ -709,7 +715,8 @@ export function createQuestionComponent(
 
 		lines.push("");
 		const helpText = isMultiQuestion || isSingleQuestionMultiSelect ? HELP_MULTI_QUESTION : HELP_SINGLE;
-		// 帮助行也是静态文本，窄终端下需截断避免超宽
+		// The help line is static text; truncate it on narrow terminals to
+		// stay within the width
 		lines.push(theme.fg("dim", fitToWidth(helpText, _width)));
 
 		cachedLines = lines;
